@@ -345,14 +345,29 @@
       camDir.normalize();
       const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), camDir).normalize();
 
-      const targetX = camDir.x * (-mouse.y) + right.x * mouse.x;
-      const targetZ = camDir.z * (-mouse.y) + right.z * mouse.x;
-      const targetAngle = Math.atan2(targetX, targetZ);
+      // La souris est relative au centre de l'écran :
+      //  - souris à droite  -> tourner vers la droite (mouse.x > 0)
+      //  - souris en haut   -> tourner vers l'avant (mouse.y < 0)
+      const mouseNorm = Math.min(1, Math.hypot(mouse.x, mouse.y) * 1.8);
+      const dirX = right.x * mouse.x - camDir.x * mouse.y * mouseNorm;
+      const dirZ = right.z * mouse.x - camDir.z * mouse.y * mouseNorm;
+      const targetAngle = Math.atan2(dirX, dirZ);
 
+      // Calcul de la différence angulaire avec normalisation à [-π, π]
       let diff = targetAngle - player.heading;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      const turn = Math.max(-TURN_SPEED, Math.min(TURN_SPEED, diff));
-      player.heading += turn;
+
+      // Vitesse de rotation dynamique :
+      //  - de base TURN_SPEED, montée jusqu'à TURN_SPEED * 2 quand la souris est loin
+      //  - lissée par un amortissement exponentiel pour éviter les à-coups
+      const maxTurn = TURN_SPEED * 2;
+      const targetTurnSpeed = TURN_SPEED + (maxTurn - TURN_SPEED) * mouseNorm;
+      let desiredTurn = Math.max(-targetTurnSpeed, Math.min(targetTurnSpeed, diff));
+
+      // Amortissement exponentiel (lerp de la vitesse de rotation)
+      if (!player._turnVel) player._turnVel = 0;
+      player._turnVel += (desiredTurn - player._turnVel) * 0.25;
+      player.heading += player._turnVel;
 
       const speed = boosting ? BOOST_SPEED : BASE_SPEED;
 
