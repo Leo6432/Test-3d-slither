@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Slither 3D — Leo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    /* Reset de base */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a1a; font-family: 'Segoe UI', Tahoma, sans-serif; }
+    #app { position: fixed; inset: 0; }
+
+    /* ---------- HUD ---------- */
+    #hud {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 16px 20px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .hud-panel {
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      padding: 10px 16px;
+      color: #fff;
+      backdrop-filter: blur(8px);
+      min-width: 200px;
+    }
+    .hud-title { font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    #score-value { font-size: 28px; font-weight: bold; color: #7fffcf; text-shadow: 0 0 12px rgba(127, 255, 207, 0.6); }
+    #leaderboard { list-style: none; font-size: 14px; line-height: 1.6; }
+    #leaderboard li { display: flex; justify-content: space-between; gap: 16px; }
+    #leaderboard li .rank { opacity: 0.6; }
+    #leaderboard li.me { color: #7fffcf; font-weight: bold; }
+
+    /* ---------- Écran Game Over ---------- */
+    #game-over {
+      position: fixed; inset: 0;
+      display: none;
+      align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(6px);
+      z-index: 20;
+    }
+    #game-over.visible { display: flex; }
+    .go-box {
+      background: #14162a;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      padding: 40px 60px;
+      text-align: center;
+      color: #fff;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+    .go-title { font-size: 48px; margin-bottom: 10px; color: #ff6b6b; text-shadow: 0 0 20px rgba(255, 107, 107, 0.5); }
+    .go-score { font-size: 22px; margin-bottom: 24px; opacity: 0.9; }
+    .go-score span { color: #7fffcf; font-weight: bold; }
+    .btn {
+      background: linear-gradient(135deg, #4cd964, #34c3ff);
+      color: #0a0a1a;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 32px;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 20px rgba(68, 195, 255, 0.4);
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(68, 195, 255, 0.55); }
+    .btn:active { transform: translateY(0); }
+
+    /* ---------- Aide / instructions ---------- */
+    #help {
+      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 10px;
+      padding: 8px 18px;
+      color: rgba(255, 255, 255, 0.75);
+      font-size: 13px;
+      pointer-events: none;
+      z-index: 10;
+    }
+  </style>
+  <!-- Three.js via CDN (version r128, stable et simple) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- HUD : score à gauche, classement à droite -->
+  <div id="hud">
+    <div class="hud-panel">
+      <div class="hud-title">Score</div>
+      <div id="score-value">0</div>
+    </div>
+    <div class="hud-panel">
+      <div class="hud-title">Classement</div>
+      <ul id="leaderboard"></ul>
+    </div>
+  </div>
+
+  <div id="help">Souris : diriger · Clic maintenu / Espace : boost</div>
+
+  <!-- Écran Game Over -->
+  <div id="game-over">
+    <div class="go-box">
+      <div class="go-title">Game Over</div>
+      <div class="go-score">Score final : <span id="final-score">0</span></div>
+      <button class="btn" id="restart-btn">Rejouer</button>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // SLITHER 3D — Jeu de serpent 3D inspiré de Slither.io
+    // Technologie : Three.js (WebGL)
+    // =========================================================================
+
+    // ----- Constantes de jeu -----
+    const WORLD_RADIUS = 600;             // rayon de la carte
+    const FOOD_COUNT = 400;               // nombre de boules de nourriture initiales
+    const FOOD_RADIUS = 2.2;              // rayon d'une boule de nourriture
+    const EAT_DISTANCE = 3.5;             // distance pour "manger" une boule
+    const SEGMENT_SPACING = 1.8;          // espacement entre segments
+    const BASE_SPEED = 0.9;               // vitesse de base de la tête
+    const BOOST_SPEED = 1.9;              // vitesse en boost
+    const BOOST_DRAIN = 0.08;             // perte de longueur par frame en boost
+    const BOOST_DROP_CHANCE = 0.05;       // probabilité de lâcher une boule par frame
+    const BOT_COUNT = 6;                  // nombre de serpents IA
+    const TURN_SPEED = 0.05;              // vitesse de rotation (radians/frame)
+    const PLAYER_START_LEN = 12;          // longueur initiale du joueur
+    const BOT_START_LEN = 15;             // longueur initiale des bots
+    const GROW_PER_FOOD = 0.6;            // longueur gagnée par boule mangée
+
+    // ----- État global -----
+    let scene, camera, renderer, clock;
+    let player, bots = [];
+    let foods = [];
+    let foodGeo, foodMat, playerHue = 0.45;
+    let gameRunning = true;
+    let score = 0;
+    let mouse = { x: 0, y: 0 };            // position souris normalisée
+    let boosting = false;
+    let leaderboard = [];                  // [{name, score, isPlayer}]
+
+    // =========================================================================
+    // INITIALISATION
+    // =========================================================================
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0a1a);
+      scene.fog = new THREE.Fog(0x0a0a1a, 150, 700);
+
+      camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
+      camera.position.set(0, 40, 50);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = false;
+      document.getElementById('app').appendChild(renderer.domElement);
+
+      clock = new THREE.Clock();
+
+      // ----- Lumières -----
+      const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+      scene.add(ambient);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(100, 200, 100);
+      scene.add(dir);
+      const point = new THREE.PointLight(0x88ccff, 0.5, 500);
+      point.position.set(0, 100, 0);
+      scene.add(point);
+
+      // ----- Sol -----
+      createGround();
+
+      // ----- Géométries partagées -----
+      foodGeo = new THREE.SphereGeometry(FOOD_RADIUS, 12, 12);
+
+      // ----- Entités -----
+      player = createSnake(PLAYER_START_LEN, playerHue, true);
+      for (let i = 0; i < BOT_COUNT; i++) {
+        bots.push(createSnake(BOT_START_LEN + Math.random() * 10, 0.0 + i * 0.13, false));
+      }
+
+      // ----- Nourriture -----
+      for (let i = 0; i < FOOD_COUNT; i++) spawnFood();
+
+      // ----- HUD initial -----
+      updateScoreUI();
+      updateLeaderboard();
+
+      // ----- Événements -----
+      window.addEventListener('resize', onResize);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mousedown', () => { if (gameRunning) boosting = true; });
+      window.addEventListener('mouseup', () => { boosting = false; });
+      window.addEventListener('keydown', e => { if (e.code === 'Space' && gameRunning) { e.preventDefault(); boosting = true; } });
+      window.addEventListener('keyup', e => { if (e.code === 'Space') boosting = false; });
+      document.getElementById('restart-btn').addEventListener('click', restartGame);
+
+      animate();
+    }
+
+    // -------------------------------------------------------------------------
+    // SOL : grand disque sombre avec bordure lumineuse
+    // -------------------------------------------------------------------------
+    function createGround() {
+      const groundGeo = new THREE.CircleGeometry(WORLD_RADIUS + 20, 80);
+      const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x11142b,
+        roughness: 0.9,
+        metalness: 0.0
+      });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
+      // Bordure lumineuse
+      const borderGeo = new THREE.RingGeometry(WORLD_RADIUS, WORLD_RADIUS + 6, 80);
+      const borderMat = new THREE.MeshBasicMaterial({
+        color: 0x3355aa,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.8
+      });
+      const border = new THREE.Mesh(borderGeo, borderMat);
+      border.rotation.x = -Math.PI / 2;
+      border.position.y = 0.1;
+      scene.add(border);
+    }
+
+    // -------------------------------------------------------------------------
+    // CRÉATION D'UN SERPENT
+    // Chaque serpent est un objet avec ses propriétés de jeu + un THREE.Group
+    // contenant la tête et tous les segments.
+    // -------------------------------------------------------------------------
+    function createSnake(length, hue, isPlayer) {
+      const group = new THREE.Group();
+
+      // Couleur basée sur la teinte
+      const color = new THREE.Color().setHSL(hue, 0.8, 0.55);
+      const headMat = new THREE.MeshStandardMaterial({
+        color: color,
+        emissive: color,
+        emissiveIntensity: 0.4,
+        roughness: 0.3,
+        metalness: 0.2
+      });
+
+      // Tête : sphère légèrement plus grande
+      const headGeo = new THREE.SphereGeometry(1.6, 20, 20);
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.set(0, 1.6, 0);
+      group.add(head);
+
+      // Yeux décoratifs
+      const eyeGeo = new THREE.SphereGeometry(0.35, 10, 10);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const pupilGeo = new THREE.SphereGeometry(0.2, 8, 8);
+      const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+      function makeEye(x) {
+        const eye = new THREE.Mesh(eyeGeo, eyeMat);
+        eye.position.set(x, 2.0, 1.2);
+        const pupil = new THREE.Mesh(pupilGeo, pupilMat);
+        pupil.position.set(x * 0.5, 2.05, 1.55);
+        group.add(eye, pupil);
+      }
+      makeEye(-0.7);
+      makeEye(0.7);
+
+      // Segments du corps (plus petits, teinte légèrement différente)
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: color.clone().offsetHSL(0, 0, -0.1),
+        emissive: color.clone().offsetHSL(0, 0, -0.1),
+        emissiveIntensity: 0.25,
+        roughness: 0.4,
+        metalness: 0.15
+      });
+      const segments = [];
+      for (let i = 0; i < length; i++) {
+        const s = new THREE.Mesh(new THREE.SphereGeometry(1.3, 12, 12), bodyMat);
+        s.position.set(0, 1.4, -i * SEGMENT_SPACING);
+        group.add(s);
+        segments.push(s);
+      }
+
+      // Position initiale aléatoire sur la carte
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * (WORLD_RADIUS - 50);
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      const heading = Math.random() * Math.PI * 2;
+
+      group.position.set(x, 0, z);
+      group.rotation.y = heading;
+
+      scene.add(group);
+
+      // État logique du serpent
+      return {
+        group: group,
+        head: head,
+        segments: segments,
+        length: length,
+        hue: hue,
+        isPlayer: isPlayer,
+        heading: heading,
+        targetHeading: heading,
+        alive: true,
+        // Pour les bots : mémoire de l'IA
+        botTimer: 0,
+        botTarget: new THREE.Vector3(x + (Math.random() - 0.5) * 200, 0, z + (Math.random() - 0.5) * 200)
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // NOURRITURE : sphères lumineuses colorées
+    // -------------------------------------------------------------------------
+    function spawnFood(x, z, isDrop) {
+      const hue = Math.random();
+      const color = new THREE.Color().setHSL(hue, 0.9, 0.6);
+      const mat = new THREE.MeshStandardMaterial({
+        color: color,
+        emissive: color,
+        emissiveIntensity: 0.9,
+        roughness: 0.2
+      });
+      const food = new THREE.Mesh(foodGeo, mat);
+      let fx, fz;
+      if (x !== undefined && z !== undefined) {
+        fx = x; fz = z;
+      } else {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * (WORLD_RADIUS - 20);
+        fx = Math.cos(angle) * dist;
+        fz = Math.sin(angle) * dist;
+      }
+      food.position.set(fx, 1.2, fz);
+      // Petit halo : point lumineux (pas de vraie lumière pour la perf, on simule par un sprite)
+      scene.add(food);
+
+      // On stocke aussi la référence "logique"
+      const foodData = {
+        mesh: food,
+        radius: FOOD_RADIUS,
+        alive: true,
+        drop: isDrop || false
+      };
+      foods.push(foodData);
+      return foodData;
+    }
+
+    function removeFood(fd) {
+      scene.remove(fd.mesh);
+      fd.mesh.geometry.dispose();
+      fd.mesh.material.dispose();
+      fd.alive = false;
+    }
+
+    // -------------------------------------------------------------------------
+    // LOGIQUE DE MISE À JOUR — SERPENT (joueur)
+    // -------------------------------------------------------------------------
+    function updatePlayer(dt) {
+      if (!player.alive) return;
+
+      // Direction cible à partir de la souris
+      const camDir = new THREE.Vector3();
+      camera.getWorldDirection(camDir);
+      camDir.y = 0;
+      camDir.normalize();
+      const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), camDir).normalize();
+
+      const targetX = camDir.x * (-mouse.y) + right.x * mouse.x;
+      const targetZ = camDir.z * (-mouse.y) + right.z * mouse.x;
+      const targetAngle = Math.atan2(targetX, targetZ);
+
+      // Rotation fluide (angle minimal)
+      let diff = targetAngle - player.heading;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      const turn = Math.max(-TURN_SPEED, Math.min(TURN_SPEED, diff));
+      player.heading += turn;
+      player.targetHeading = player.heading;
+
+      // Vitesse
+      const speed = boosting ? BOOST_SPEED : BASE_SPEED;
+
+      // Déplacement
+      player.group.position.x += Math.sin(player.heading) * speed;
+      player.group.position.z += Math.cos(player.heading) * speed;
+      player.group.rotation.y = player.heading;
+
+      // Contrainte : reste dans la carte (sinon, mort)
+      const dist = Math.hypot(player.group.position.x, player.group.position.z);
+      if (dist > WORLD_RADIUS - 5) {
+        killSnake(player, "Bord de la carte !");
+        return;
+      }
+
+      // Boost : perte de longueur + dépôt de nourriture
+      if (boosting) {
+        if (player.length > 3) {
+          player.length -= BOOST_DRAIN;
+          // On retire des segments au fur et à mesure
+          while (player.segments.length > Math.floor(player.length)) {
+            const s = player.segments.pop();
+            player.group.remove(s);
+            s.geometry.dispose();
+            player.head.parent = null;
+          }
+        }
+        // Dépôt de nourriture derrière
+        if (Math.random() < BOOST_DROP_CHANCE) {
+          const behind = new THREE.Vector3(
+            -Math.sin(player.heading) * 2,
+            0,
+            -Math.cos(player.heading) * 2
+          );
+          spawnFood(
+            player.group.position.x + behind.x,
+            player.group.position.z + behind.z,
+            true
+          );
+        }
+      }
+
+      // Suivi des segments (chaîne qui suit la tête)
+      updateSegments(player);
+
+      // Manger la nourriture
+      eatFood(player);
+
+      // Vérification de collision avec les bots (et inversement)
+      checkCollisions();
+    }
+
+    // -------------------------------------------------------------------------
+    // LOGIQUE DE MISE À JOUR — BOTS (IA)
+    // Stratégie simple : chercher la nourriture la plus proche, éviter le
+    // joueur quand il est trop grand, et parfois "attaquer" (croiser sa route).
+    // -------------------------------------------------------------------------
+    function updateBot(bot, dt) {
+      if (!bot.alive) return;
+
+      // Timer de changement de cible IA
+      bot.botTimer -= dt;
+      if (bot.botTimer <= 0) {
+        bot.botTimer = 1.5 + Math.random() * 2;
+        // 60% : aller vers la nourriture la plus proche
+        // 25% : aller vers le joueur pour essayer de couper
+        // 15% : se déplacer aléatoirement
+        const r = Math.random();
+        if (r < 0.6) {
+          const nearest = findNearestFood(bot.group.position);
+          if (nearest) bot.botTarget.copy(nearest.mesh.position);
+        } else if (r < 0.85 && player.alive) {
+          // Attaque : viser la position future du joueur
+          const future = player.group.position.clone();
+          future.x += Math.sin(player.heading) * 20;
+          future.z += Math.cos(player.heading) * 20;
+          bot.botTarget.copy(future);
+        } else {
+          // Aléatoire
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 50 + Math.random() * 100;
+          bot.botTarget.set(
+            bot.group.position.x + Math.cos(angle) * dist,
+            0,
+            bot.group.position.z + Math.sin(angle) * dist
+          );
+        }
+      }
+
+      // Direction vers la cible
+      const dx = bot.botTarget.x - bot.group.position.x;
+      const dz = bot.botTarget.z - bot.group.position.z;
+      const targetAngle = Math.atan2(dx, dz);
+      let diff = targetAngle - bot.heading;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      const turn = Math.max(-TURN_SPEED * 0.9, Math.min(TURN_SPEED * 0.9, diff));
+      bot.heading += turn;
+
+      // Vitesse légèrement variable
+      const speed = BASE_SPEED * (0.85 + Math.random() * 0.3);
+      bot.group.position.x += Math.sin(bot.heading) * speed;
+      bot.group.position.z += Math.cos(bot.heading) * speed;
+      bot.group.rotation.y = bot.heading;
+
+      // Contrainte carte
+      const dist = Math.hypot(bot.group.position.x, bot.group.position.z);
+      if (dist > WORLD_RADIUS - 5) {
+        // Rebond : on redirige au centre
+        bot.heading = Math.atan2(-bot.group.position.x, -bot.group.position.z);
+        bot.group.position.x = Math.min(Math.max(bot.group.position.x, -(WORLD_RADIUS - 10)), WORLD_RADIUS - 10);
+        bot.group.position.z = Math.min(Math.max(bot.group.position.z, -(WORLD_RADIUS - 10)), WORLD_RADIUS - 10);
+      }
+
+      updateSegments(bot);
+      eatFood(bot);
+    }
+
+    // -------------------------------------------------------------------------
+    // SUIVI DES SEGMENTS
+    // Chaque segment est placé à une distance cumulative derrière le
+    // précédent le long de l'angle du serpent (approche simplifiée).
+    // Pour un rendu plus fluide, on stocke l'historique des positions de la
+    // tête et on place les segments sur cet historique.
+    // -------------------------------------------------------------------------
+    function updateSegments(snake) {
+      // Pour cette version, on positionne les segments le long de l'axe
+      // derrière la tête selon l'angle du serpent. C'est simple et suffisant.
+      for (let i = 0; i < snake.segments.length; i++) {
+        const seg = snake.segments[i];
+        const back = (i + 1) * SEGMENT_SPACING;
+        seg.position.x = -Math.sin(snake.heading) * back;
+        seg.position.z = -Math.cos(snake.heading) * back;
+        seg.position.y = 1.4;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // MANGER LA NOURRITURE
+    // -------------------------------------------------------------------------
+    function eatFood(snake) {
+      const headPos = snake.group.position;
+      for (let i = foods.length - 1; i >= 0; i--) {
+        const f = foods[i];
+        if (!f.alive) { foods.splice(i, 1); continue; }
+        const dx = headPos.x - f.mesh.position.x;
+        const dz = headPos.z - f.mesh.position.z;
+        if (dx * dx + dz * dz < EAT_DISTANCE * EAT_DISTANCE) {
+          // Manger !
+          removeFood(f);
+          foods.splice(i, 1);
+          snake.length += GROW_PER_FOOD;
+          // Ajouter un segment
+          addSegment(snake);
+          if (snake.isPlayer) {
+            score += 10;
+            updateScoreUI();
+          }
+        }
+      }
+    }
+
+    function addSegment(snake) {
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setHSL(snake.hue, 0.8, 0.45),
+        emissive: new THREE.Color().setHSL(snake.hue, 0.8, 0.45),
+        emissiveIntensity: 0.25,
+        roughness: 0.4,
+        metalness: 0.15
+      });
+      const s = new THREE.Mesh(new THREE.SphereGeometry(1.3, 12, 12), bodyMat);
+      s.position.set(0, 1.4, -snake.length * SEGMENT_SPACING);
+      snake.group.add(s);
+      snake.segments.push(s);
+    }
+
+    // -------------------------------------------------------------------------
+    // COLLISIONS
+    // Tête d'un serpent vs corps d'un autre serpent (ou le sien) => mort
+    // -------------------------------------------------------------------------
+    function checkCollisions() {
+      const all = [player, ...bots];
+      for (const a of all) {
+        if (!a.alive) continue;
+        const aPos = a.group.position;
+        // Tête de A contre les segments de B
+        for (const b of all) {
+          if (!b.alive) continue;
+          if (a === b) {
+            // Auto-collision : on ignore les 3 premiers segments (trop près de la tête)
+            for (let i = 3; i < b.segments.length; i++) {
+              const s = b.segments[i];
+              const dx = aPos.x - s.position.x;
+              const dz = aPos.z - s.position.z;
+              if (dx * dx + dz * dz < 2.5 * 2.5) {
+                killSnake(a, "Tu t'es mordu !");
+                return;
+              }
+            }
+          } else {
+            for (let i = 0; i < b.segments.length; i++) {
+              const s = b.segments[i];
+              const dx = aPos.x - s.position.x;
+              const dz = aPos.z - s.position.z;
+              if (dx * dx + dz * dz < 2.5 * 2.5) {
+                killSnake(a, "Percuté par " + (b.isPlayer ? "le joueur" : "un autre serpent"));
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // MORT D'UN SERPENT : explosion en nourriture
+    // -------------------------------------------------------------------------
+    function killSnake(snake, reason) {
+      if (!snake.alive) return;
+      snake.alive = false;
+      // Déposer une boule de nourriture à l'endroit de chaque segment
+      for (const s of snake.segments) {
+        if (Math.random() < 0.6) {
+          spawnFood(s.position.x, s.position.z, true);
+        }
+      }
+      // Retirer le serpent de la scène
+      scene.remove(snake.group);
+      snake.segments.forEach(s => { s.geometry.dispose(); });
+      snake.head.geometry.dispose();
+
+      if (snake.isPlayer) {
+        // Game Over
+        gameRunning = false;
+        document.getElementById('final-score').textContent = score;
+        document.getElementById('game-over').classList.add('visible');
+        updateLeaderboard();
+      } else {
+        // Retirer du tableau des bots
+        const idx = bots.indexOf(snake);
+        if (idx !== -1) bots.splice(idx, 1);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // UTILITAIRES
+    // -------------------------------------------------------------------------
+    function findNearestFood(pos) {
+      let best = null;
+      let bestDist = Infinity;
+      for (const f of foods) {
+        if (!f.alive) continue;
+        const dx = pos.x - f.mesh.position.x;
+        const dz = pos.z - f.mesh.position.z;
+        const d = dx * dx + dz * dz;
+        if (d < bestDist) { bestDist = d; best = f; }
+      }
+      return best;
+    }
+
+    function updateScoreUI() {
+      document.getElementById('score-value').textContent = score;
+    }
+
+    function updateLeaderboard() {
+      leaderboard = [];
+      if (player.alive) leaderboard.push({ name: 'Toi', score: score, isPlayer: true });
+      for (const b of bots) {
+        leaderboard.push({ name: 'Bot ' + Math.round(b.hue * 360) + '°', score: Math.floor(b.length), isPlayer: false });
+      }
+      leaderboard.sort((a, b) => b.score - a.score);
+      const top = leaderboard.slice(0, 5);
+      const ul = document.getElementById('leaderboard');
+      ul.innerHTML = top.map((e, i) =>
+        `<li class="${e.isPlayer ? 'me' : ''}"><span class="rank">${i + 1}.</span><span>${e.name}</span><span>${e.score}</span></li>`
+      ).join('');
+    }
+
+    // -------------------------------------------------------------------------
+    // RESTART
+    // -------------------------------------------------------------------------
+    function restartGame() {
+      // Nettoyer tous les serpents et la nourriture
+      [player, ...bots].forEach(s => {
+        if (s) {
+          scene.remove(s.group);
+          s.segments.forEach(seg => seg.geometry.dispose());
+          s.head.geometry.dispose();
+        }
+      });
+      foods.forEach(f => removeFood(f));
+      foods = [];
+      bots = [];
+      score = 0;
+
+      // Recréer
+      player = createSnake(PLAYER_START_LEN, playerHue, true);
+      for (let i = 0; i < BOT_COUNT; i++) {
+        bots.push(createSnake(BOT_START_LEN + Math.random() * 10, 0.0 + i * 0.13, false));
+      }
+      for (let i = 0; i < FOOD_COUNT; i++) spawnFood();
+
+      gameRunning = true;
+      document.getElementById('game-over').classList.remove('visible');
+      updateScoreUI();
+      updateLeaderboard();
+    }
+
+    // -------------------------------------------------------------------------
+    // ENTRÉES CLAVIER / SOURIS
+    // -------------------------------------------------------------------------
+    function onMouseMove(e) {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = (e.clientY / window.innerHeight) * 2 - 1;
+    }
+    function onResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // -------------------------------------------------------------------------
+    // CAMÉRA À LA SUIVIE
+    // Zoom dynamique : plus le serpent est long, plus la caméra est loin.
+    // -------------------------------------------------------------------------
+    function updateCamera() {
+      if (!player.alive) return;
+      const dist = 20 + player.length * 0.8;
+      const camHeight = dist * 0.9;
+      const desired = new THREE.Vector3(
+        player.group.position.x - Math.sin(player.heading) * dist,
+        camHeight,
+        player.group.position.z - Math.cos(player.heading) * dist
+      );
+      camera.position.lerp(desired, 0.08);
+      camera.lookAt(player.group.position.x, 2, player.group.position.z);
+    }
+
+    // -------------------------------------------------------------------------
+    // BOUCLE PRINCIPALE
+    // -------------------------------------------------------------------------
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+
+      if (gameRunning) {
+        updatePlayer(dt);
+        for (const bot of bots) updateBot(bot, dt);
+        updateCamera();
+        // Rafraîchir le classement périodiquement
+        if (Math.floor(clock.elapsedTime * 2) % 2 === 0) updateLeaderboard();
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // Démarrage
+    init();
+  </script>
+</body>
+</html>
