@@ -86,13 +86,11 @@
       z-index: 10;
     }
   </style>
-  <!-- Three.js via CDN (version r128, stable et simple) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
   <div id="app"></div>
 
-  <!-- HUD : score à gauche, classement à droite -->
   <div id="hud">
     <div class="hud-panel">
       <div class="hud-title">Score</div>
@@ -106,7 +104,6 @@
 
   <div id="help">Souris : diriger · Clic maintenu / Espace : boost</div>
 
-  <!-- Écran Game Over -->
   <div id="game-over">
     <div class="go-box">
       <div class="go-title">Game Over</div>
@@ -118,35 +115,34 @@
   <script>
     // =========================================================================
     // SLITHER 3D — Jeu de serpent 3D inspiré de Slither.io
-    // Technologie : Three.js (WebGL)
     // =========================================================================
 
     // ----- Constantes de jeu -----
-    const WORLD_RADIUS = 600;             // rayon de la carte
-    const FOOD_COUNT = 400;               // nombre de boules de nourriture initiales
-    const FOOD_RADIUS = 2.2;              // rayon d'une boule de nourriture
-    const EAT_DISTANCE = 3.5;             // distance pour "manger" une boule
-    const SEGMENT_SPACING = 1.8;          // espacement entre segments
-    const BASE_SPEED = 0.9;               // vitesse de base de la tête
-    const BOOST_SPEED = 1.9;              // vitesse en boost
-    const BOOST_DRAIN = 0.08;             // perte de longueur par frame en boost
-    const BOOST_DROP_CHANCE = 0.05;       // probabilité de lâcher une boule par frame
-    const BOT_COUNT = 6;                  // nombre de serpents IA
-    const TURN_SPEED = 0.05;              // vitesse de rotation (radians/frame)
-    const PLAYER_START_LEN = 12;          // longueur initiale du joueur
-    const BOT_START_LEN = 15;             // longueur initiale des bots
-    const GROW_PER_FOOD = 0.6;            // longueur gagnée par boule mangée
+    const WORLD_RADIUS = 600;
+    const FOOD_COUNT = 400;
+    const FOOD_RADIUS = 2.2;
+    const EAT_DISTANCE = 3.5;
+    const SEGMENT_SPACING = 1.8;
+    const BASE_SPEED = 0.9;
+    const BOOST_SPEED = 1.9;
+    const BOOST_DRAIN = 0.08;
+    const BOOST_DROP_CHANCE = 0.05;
+    const BOT_COUNT = 6;
+    const TURN_SPEED = 0.05;
+    const PLAYER_START_LEN = 12;
+    const BOT_START_LEN = 15;
+    const GROW_PER_FOOD = 0.6;
+    const MAX_HISTORY = 500; // longueur max de l'historique de positions
 
     // ----- État global -----
     let scene, camera, renderer, clock;
     let player, bots = [];
     let foods = [];
-    let foodGeo, foodMat, playerHue = 0.45;
+    let foodGeo, playerHue = 0.45;
     let gameRunning = true;
     let score = 0;
-    let mouse = { x: 0, y: 0 };            // position souris normalisée
+    let mouse = { x: 0, y: 0 };
     let boosting = false;
-    let leaderboard = [];                  // [{name, score, isPlayer}]
 
     // =========================================================================
     // INITIALISATION
@@ -167,7 +163,6 @@
 
       clock = new THREE.Clock();
 
-      // ----- Lumières -----
       const ambient = new THREE.AmbientLight(0xffffff, 0.55);
       scene.add(ambient);
       const dir = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -177,26 +172,19 @@
       point.position.set(0, 100, 0);
       scene.add(point);
 
-      // ----- Sol -----
       createGround();
-
-      // ----- Géométries partagées -----
       foodGeo = new THREE.SphereGeometry(FOOD_RADIUS, 12, 12);
 
-      // ----- Entités -----
       player = createSnake(PLAYER_START_LEN, playerHue, true);
       for (let i = 0; i < BOT_COUNT; i++) {
         bots.push(createSnake(BOT_START_LEN + Math.random() * 10, 0.0 + i * 0.13, false));
       }
 
-      // ----- Nourriture -----
       for (let i = 0; i < FOOD_COUNT; i++) spawnFood();
 
-      // ----- HUD initial -----
       updateScoreUI();
       updateLeaderboard();
 
-      // ----- Événements -----
       window.addEventListener('resize', onResize);
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mousedown', () => { if (gameRunning) boosting = true; });
@@ -209,27 +197,17 @@
     }
 
     // -------------------------------------------------------------------------
-    // SOL : grand disque sombre avec bordure lumineuse
+    // SOL
     // -------------------------------------------------------------------------
     function createGround() {
       const groundGeo = new THREE.CircleGeometry(WORLD_RADIUS + 20, 80);
-      const groundMat = new THREE.MeshStandardMaterial({
-        color: 0x11142b,
-        roughness: 0.9,
-        metalness: 0.0
-      });
+      const groundMat = new THREE.MeshStandardMaterial({ color: 0x11142b, roughness: 0.9, metalness: 0.0 });
       const ground = new THREE.Mesh(groundGeo, groundMat);
       ground.rotation.x = -Math.PI / 2;
       scene.add(ground);
 
-      // Bordure lumineuse
       const borderGeo = new THREE.RingGeometry(WORLD_RADIUS, WORLD_RADIUS + 6, 80);
-      const borderMat = new THREE.MeshBasicMaterial({
-        color: 0x3355aa,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.8
-      });
+      const borderMat = new THREE.MeshBasicMaterial({ color: 0x3355aa, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
       const border = new THREE.Mesh(borderGeo, borderMat);
       border.rotation.x = -Math.PI / 2;
       border.position.y = 0.1;
@@ -238,14 +216,13 @@
 
     // -------------------------------------------------------------------------
     // CRÉATION D'UN SERPENT
-    // Chaque serpent est un objet avec ses propriétés de jeu + un THREE.Group
-    // contenant la tête et tous les segments.
+    // Chaque serpent possède un historique de positions (history) qui
+    // permet de placer les segments le long du chemin réellement parcouru.
     // -------------------------------------------------------------------------
     function createSnake(length, hue, isPlayer) {
       const group = new THREE.Group();
-
-      // Couleur basée sur la teinte
       const color = new THREE.Color().setHSL(hue, 0.8, 0.55);
+
       const headMat = new THREE.MeshStandardMaterial({
         color: color,
         emissive: color,
@@ -253,19 +230,16 @@
         roughness: 0.3,
         metalness: 0.2
       });
-
-      // Tête : sphère légèrement plus grande
       const headGeo = new THREE.SphereGeometry(1.6, 20, 20);
       const head = new THREE.Mesh(headGeo, headMat);
       head.position.set(0, 1.6, 0);
       group.add(head);
 
-      // Yeux décoratifs
+      // Yeux
       const eyeGeo = new THREE.SphereGeometry(0.35, 10, 10);
       const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const pupilGeo = new THREE.SphereGeometry(0.2, 8, 8);
       const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-
       function makeEye(x) {
         const eye = new THREE.Mesh(eyeGeo, eyeMat);
         eye.position.set(x, 2.0, 1.2);
@@ -276,7 +250,8 @@
       makeEye(-0.7);
       makeEye(0.7);
 
-      // Segments du corps (plus petits, teinte légèrement différente)
+      // Corps : on stocke les segments comme enfants de la scène (pas du group)
+      // pour qu'ils suivent l'historique et non la rotation du group.
       const bodyMat = new THREE.MeshStandardMaterial({
         color: color.clone().offsetHSL(0, 0, -0.1),
         emissive: color.clone().offsetHSL(0, 0, -0.1),
@@ -284,15 +259,15 @@
         roughness: 0.4,
         metalness: 0.15
       });
+      const segGeo = new THREE.SphereGeometry(1.3, 12, 12);
       const segments = [];
       for (let i = 0; i < length; i++) {
-        const s = new THREE.Mesh(new THREE.SphereGeometry(1.3, 12, 12), bodyMat);
-        s.position.set(0, 1.4, -i * SEGMENT_SPACING);
-        group.add(s);
+        const s = new THREE.Mesh(segGeo, bodyMat);
+        scene.add(s);
         segments.push(s);
       }
 
-      // Position initiale aléatoire sur la carte
+      // Position initiale
       const angle = Math.random() * Math.PI * 2;
       const dist = Math.random() * (WORLD_RADIUS - 50);
       const x = Math.cos(angle) * dist;
@@ -301,38 +276,39 @@
 
       group.position.set(x, 0, z);
       group.rotation.y = heading;
-
       scene.add(group);
 
-      // État logique du serpent
+      // Historique de positions : on pré-remplit derrière la tête
+      const history = [];
+      for (let i = 0; i < MAX_HISTORY; i++) {
+        history.push({ x: x - Math.sin(heading) * i * SEGMENT_SPACING, z: z - Math.cos(heading) * i * SEGMENT_SPACING });
+      }
+
       return {
         group: group,
         head: head,
         segments: segments,
+        segGeo: segGeo,
+        bodyMat: bodyMat,
         length: length,
         hue: hue,
         isPlayer: isPlayer,
         heading: heading,
-        targetHeading: heading,
         alive: true,
-        // Pour les bots : mémoire de l'IA
+        history: history,
+        histIndex: 0, // index courant dans l'historique circulaire
         botTimer: 0,
         botTarget: new THREE.Vector3(x + (Math.random() - 0.5) * 200, 0, z + (Math.random() - 0.5) * 200)
       };
     }
 
     // -------------------------------------------------------------------------
-    // NOURRITURE : sphères lumineuses colorées
+    // NOURRITURE
     // -------------------------------------------------------------------------
     function spawnFood(x, z, isDrop) {
       const hue = Math.random();
       const color = new THREE.Color().setHSL(hue, 0.9, 0.6);
-      const mat = new THREE.MeshStandardMaterial({
-        color: color,
-        emissive: color,
-        emissiveIntensity: 0.9,
-        roughness: 0.2
-      });
+      const mat = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.9, roughness: 0.2 });
       const food = new THREE.Mesh(foodGeo, mat);
       let fx, fz;
       if (x !== undefined && z !== undefined) {
@@ -344,29 +320,20 @@
         fz = Math.sin(angle) * dist;
       }
       food.position.set(fx, 1.2, fz);
-      // Petit halo : point lumineux (pas de vraie lumière pour la perf, on simule par un sprite)
       scene.add(food);
-
-      // On stocke aussi la référence "logique"
-      const foodData = {
-        mesh: food,
-        radius: FOOD_RADIUS,
-        alive: true,
-        drop: isDrop || false
-      };
+      const foodData = { mesh: food, radius: FOOD_RADIUS, alive: true, drop: isDrop || false };
       foods.push(foodData);
       return foodData;
     }
 
     function removeFood(fd) {
       scene.remove(fd.mesh);
-      fd.mesh.geometry.dispose();
       fd.mesh.material.dispose();
       fd.alive = false;
     }
 
     // -------------------------------------------------------------------------
-    // LOGIQUE DE MISE À JOUR — SERPENT (joueur)
+    // MISE À JOUR — JOUEUR
     // -------------------------------------------------------------------------
     function updatePlayer(dt) {
       if (!player.alive) return;
@@ -382,92 +349,66 @@
       const targetZ = camDir.z * (-mouse.y) + right.z * mouse.x;
       const targetAngle = Math.atan2(targetX, targetZ);
 
-      // Rotation fluide (angle minimal)
       let diff = targetAngle - player.heading;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       const turn = Math.max(-TURN_SPEED, Math.min(TURN_SPEED, diff));
       player.heading += turn;
-      player.targetHeading = player.heading;
 
-      // Vitesse
       const speed = boosting ? BOOST_SPEED : BASE_SPEED;
 
-      // Déplacement
       player.group.position.x += Math.sin(player.heading) * speed;
       player.group.position.z += Math.cos(player.heading) * speed;
       player.group.rotation.y = player.heading;
 
-      // Contrainte : reste dans la carte (sinon, mort)
+      // Enregistrer la position dans l'historique circulaire
+      pushHistory(player);
+
+      // Contrainte carte
       const dist = Math.hypot(player.group.position.x, player.group.position.z);
       if (dist > WORLD_RADIUS - 5) {
         killSnake(player, "Bord de la carte !");
         return;
       }
 
-      // Boost : perte de longueur + dépôt de nourriture
+      // Boost
       if (boosting) {
         if (player.length > 3) {
           player.length -= BOOST_DRAIN;
-          // On retire des segments au fur et à mesure
           while (player.segments.length > Math.floor(player.length)) {
             const s = player.segments.pop();
-            player.group.remove(s);
-            s.geometry.dispose();
-            player.head.parent = null;
+            scene.remove(s);
           }
         }
-        // Dépôt de nourriture derrière
         if (Math.random() < BOOST_DROP_CHANCE) {
-          const behind = new THREE.Vector3(
-            -Math.sin(player.heading) * 2,
-            0,
-            -Math.cos(player.heading) * 2
-          );
-          spawnFood(
-            player.group.position.x + behind.x,
-            player.group.position.z + behind.z,
-            true
-          );
+          const lastHist = player.history[player.histIndex];
+          spawnFood(lastHist.x, lastHist.z, true);
         }
       }
 
-      // Suivi des segments (chaîne qui suit la tête)
       updateSegments(player);
-
-      // Manger la nourriture
       eatFood(player);
-
-      // Vérification de collision avec les bots (et inversement)
       checkCollisions();
     }
 
     // -------------------------------------------------------------------------
-    // LOGIQUE DE MISE À JOUR — BOTS (IA)
-    // Stratégie simple : chercher la nourriture la plus proche, éviter le
-    // joueur quand il est trop grand, et parfois "attaquer" (croiser sa route).
+    // MISE À JOUR — BOTS
     // -------------------------------------------------------------------------
     function updateBot(bot, dt) {
       if (!bot.alive) return;
 
-      // Timer de changement de cible IA
       bot.botTimer -= dt;
       if (bot.botTimer <= 0) {
         bot.botTimer = 1.5 + Math.random() * 2;
-        // 60% : aller vers la nourriture la plus proche
-        // 25% : aller vers le joueur pour essayer de couper
-        // 15% : se déplacer aléatoirement
         const r = Math.random();
         if (r < 0.6) {
           const nearest = findNearestFood(bot.group.position);
           if (nearest) bot.botTarget.copy(nearest.mesh.position);
         } else if (r < 0.85 && player.alive) {
-          // Attaque : viser la position future du joueur
           const future = player.group.position.clone();
           future.x += Math.sin(player.heading) * 20;
           future.z += Math.cos(player.heading) * 20;
           bot.botTarget.copy(future);
         } else {
-          // Aléatoire
           const angle = Math.random() * Math.PI * 2;
           const dist = 50 + Math.random() * 100;
           bot.botTarget.set(
@@ -478,7 +419,6 @@
         }
       }
 
-      // Direction vers la cible
       const dx = bot.botTarget.x - bot.group.position.x;
       const dz = bot.botTarget.z - bot.group.position.z;
       const targetAngle = Math.atan2(dx, dz);
@@ -487,46 +427,60 @@
       const turn = Math.max(-TURN_SPEED * 0.9, Math.min(TURN_SPEED * 0.9, diff));
       bot.heading += turn;
 
-      // Vitesse légèrement variable
       const speed = BASE_SPEED * (0.85 + Math.random() * 0.3);
       bot.group.position.x += Math.sin(bot.heading) * speed;
       bot.group.position.z += Math.cos(bot.heading) * speed;
       bot.group.rotation.y = bot.heading;
 
-      // Contrainte carte
       const dist = Math.hypot(bot.group.position.x, bot.group.position.z);
       if (dist > WORLD_RADIUS - 5) {
-        // Rebond : on redirige au centre
         bot.heading = Math.atan2(-bot.group.position.x, -bot.group.position.z);
         bot.group.position.x = Math.min(Math.max(bot.group.position.x, -(WORLD_RADIUS - 10)), WORLD_RADIUS - 10);
         bot.group.position.z = Math.min(Math.max(bot.group.position.z, -(WORLD_RADIUS - 10)), WORLD_RADIUS - 10);
       }
 
+      pushHistory(bot);
       updateSegments(bot);
       eatFood(bot);
     }
 
     // -------------------------------------------------------------------------
-    // SUIVI DES SEGMENTS
-    // Chaque segment est placé à une distance cumulative derrière le
-    // précédent le long de l'angle du serpent (approche simplifiée).
-    // Pour un rendu plus fluide, on stocke l'historique des positions de la
-    // tête et on place les segments sur cet historique.
+    // HISTORIQUE DE POSITIONS (tampon circulaire)
+    // Chaque frame, on stocke la position courante de la tête.
+    // Les segments sont placés aux positions de l'historique à intervalle régulier.
+    // -------------------------------------------------------------------------
+    function pushHistory(snake) {
+      const x = snake.group.position.x;
+      const z = snake.group.position.z;
+      snake.history[snake.histIndex] = { x: x, z: z };
+      snake.histIndex = (snake.histIndex + 1) % MAX_HISTORY;
+    }
+
+    function getHistoryAt(snake, framesAgo) {
+      const idx = ((snake.histIndex - 1 - framesAgo) % MAX_HISTORY + MAX_HISTORY) % MAX_HISTORY;
+      return snake.history[idx];
+    }
+
+    // -------------------------------------------------------------------------
+    // SUIVI DES SEGMENTS : placé sur l'historique pour un rendu slither.io
     // -------------------------------------------------------------------------
     function updateSegments(snake) {
-      // Pour cette version, on positionne les segments le long de l'axe
-      // derrière la tête selon l'angle du serpent. C'est simple et suffisant.
-      for (let i = 0; i < snake.segments.length; i++) {
+      const n = snake.segments.length;
+      // Espacement en frames : on veut SEGMENT_SPACING unités entre segments.
+      // Comme la vitesse est ~0.9/frame, on calcule l'espacement en frames.
+      const framesPerSegment = Math.max(1, Math.round(SEGMENT_SPACING / BASE_SPEED));
+
+      for (let i = 0; i < n; i++) {
         const seg = snake.segments[i];
-        const back = (i + 1) * SEGMENT_SPACING;
-        seg.position.x = -Math.sin(snake.heading) * back;
-        seg.position.z = -Math.cos(snake.heading) * back;
+        const h = getHistoryAt(snake, (i + 1) * framesPerSegment);
+        seg.position.x = h.x;
         seg.position.y = 1.4;
+        seg.position.z = h.z;
       }
     }
 
     // -------------------------------------------------------------------------
-    // MANGER LA NOURRITURE
+    // MANGER
     // -------------------------------------------------------------------------
     function eatFood(snake) {
       const headPos = snake.group.position;
@@ -536,11 +490,9 @@
         const dx = headPos.x - f.mesh.position.x;
         const dz = headPos.z - f.mesh.position.z;
         if (dx * dx + dz * dz < EAT_DISTANCE * EAT_DISTANCE) {
-          // Manger !
           removeFood(f);
           foods.splice(i, 1);
           snake.length += GROW_PER_FOOD;
-          // Ajouter un segment
           addSegment(snake);
           if (snake.isPlayer) {
             score += 10;
@@ -551,33 +503,25 @@
     }
 
     function addSegment(snake) {
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color().setHSL(snake.hue, 0.8, 0.45),
-        emissive: new THREE.Color().setHSL(snake.hue, 0.8, 0.45),
-        emissiveIntensity: 0.25,
-        roughness: 0.4,
-        metalness: 0.15
-      });
-      const s = new THREE.Mesh(new THREE.SphereGeometry(1.3, 12, 12), bodyMat);
-      s.position.set(0, 1.4, -snake.length * SEGMENT_SPACING);
-      snake.group.add(s);
+      const s = new THREE.Mesh(snake.segGeo, snake.bodyMat);
+      // Place-le à la dernière position de l'historique
+      const last = snake.history[snake.histIndex === 0 ? MAX_HISTORY - 1 : snake.histIndex - 1];
+      s.position.set(last.x, 1.4, last.z);
+      scene.add(s);
       snake.segments.push(s);
     }
 
     // -------------------------------------------------------------------------
     // COLLISIONS
-    // Tête d'un serpent vs corps d'un autre serpent (ou le sien) => mort
     // -------------------------------------------------------------------------
     function checkCollisions() {
       const all = [player, ...bots];
       for (const a of all) {
         if (!a.alive) continue;
         const aPos = a.group.position;
-        // Tête de A contre les segments de B
         for (const b of all) {
           if (!b.alive) continue;
           if (a === b) {
-            // Auto-collision : on ignore les 3 premiers segments (trop près de la tête)
             for (let i = 3; i < b.segments.length; i++) {
               const s = b.segments[i];
               const dx = aPos.x - s.position.x;
@@ -603,30 +547,26 @@
     }
 
     // -------------------------------------------------------------------------
-    // MORT D'UN SERPENT : explosion en nourriture
+    // MORT
     // -------------------------------------------------------------------------
     function killSnake(snake, reason) {
       if (!snake.alive) return;
       snake.alive = false;
-      // Déposer une boule de nourriture à l'endroit de chaque segment
       for (const s of snake.segments) {
         if (Math.random() < 0.6) {
           spawnFood(s.position.x, s.position.z, true);
         }
+        scene.remove(s);
       }
-      // Retirer le serpent de la scène
       scene.remove(snake.group);
-      snake.segments.forEach(s => { s.geometry.dispose(); });
       snake.head.geometry.dispose();
 
       if (snake.isPlayer) {
-        // Game Over
         gameRunning = false;
         document.getElementById('final-score').textContent = score;
         document.getElementById('game-over').classList.add('visible');
         updateLeaderboard();
       } else {
-        // Retirer du tableau des bots
         const idx = bots.indexOf(snake);
         if (idx !== -1) bots.splice(idx, 1);
       }
@@ -636,8 +576,7 @@
     // UTILITAIRES
     // -------------------------------------------------------------------------
     function findNearestFood(pos) {
-      let best = null;
-      let bestDist = Infinity;
+      let best = null, bestDist = Infinity;
       for (const f of foods) {
         if (!f.alive) continue;
         const dx = pos.x - f.mesh.position.x;
@@ -653,7 +592,7 @@
     }
 
     function updateLeaderboard() {
-      leaderboard = [];
+      const leaderboard = [];
       if (player.alive) leaderboard.push({ name: 'Toi', score: score, isPlayer: true });
       for (const b of bots) {
         leaderboard.push({ name: 'Bot ' + Math.round(b.hue * 360) + '°', score: Math.floor(b.length), isPlayer: false });
@@ -670,11 +609,10 @@
     // RESTART
     // -------------------------------------------------------------------------
     function restartGame() {
-      // Nettoyer tous les serpents et la nourriture
       [player, ...bots].forEach(s => {
         if (s) {
+          s.segments.forEach(seg => scene.remove(seg));
           scene.remove(s.group);
-          s.segments.forEach(seg => seg.geometry.dispose());
           s.head.geometry.dispose();
         }
       });
@@ -683,7 +621,6 @@
       bots = [];
       score = 0;
 
-      // Recréer
       player = createSnake(PLAYER_START_LEN, playerHue, true);
       for (let i = 0; i < BOT_COUNT; i++) {
         bots.push(createSnake(BOT_START_LEN + Math.random() * 10, 0.0 + i * 0.13, false));
@@ -697,7 +634,7 @@
     }
 
     // -------------------------------------------------------------------------
-    // ENTRÉES CLAVIER / SOURIS
+    // ENTRÉES
     // -------------------------------------------------------------------------
     function onMouseMove(e) {
       mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -711,16 +648,15 @@
 
     // -------------------------------------------------------------------------
     // CAMÉRA À LA SUIVIE
-    // Zoom dynamique : plus le serpent est long, plus la caméra est loin.
     // -------------------------------------------------------------------------
     function updateCamera() {
       if (!player.alive) return;
       const dist = 20 + player.length * 0.8;
       const camHeight = dist * 0.9;
       const desired = new THREE.Vector3(
-        player.group.position.x - Math.sin(player.heading) * dist,
+        player.group.position.x,
         camHeight,
-        player.group.position.z - Math.cos(player.heading) * dist
+        player.group.position.z + dist
       );
       camera.position.lerp(desired, 0.08);
       camera.lookAt(player.group.position.x, 2, player.group.position.z);
@@ -737,14 +673,12 @@
         updatePlayer(dt);
         for (const bot of bots) updateBot(bot, dt);
         updateCamera();
-        // Rafraîchir le classement périodiquement
         if (Math.floor(clock.elapsedTime * 2) % 2 === 0) updateLeaderboard();
       }
 
       renderer.render(scene, camera);
     }
 
-    // Démarrage
     init();
   </script>
 </body>
