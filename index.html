@@ -102,7 +102,7 @@
     </div>
   </div>
 
-  <div id="help">Souris : diriger · Clic maintenu / Espace : boost</div>
+  <div id="help">Souris / Flèches : diriger · Clic maintenu / Espace : boost</div>
 
   <div id="game-over">
     <div class="go-box">
@@ -143,6 +143,7 @@
     let score = 0;
     let mouse = { x: 0, y: 0 };
     let boosting = false;
+    let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
 
     // =========================================================================
     // INITIALISATION
@@ -189,8 +190,14 @@
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mousedown', () => { if (gameRunning) boosting = true; });
       window.addEventListener('mouseup', () => { boosting = false; });
-      window.addEventListener('keydown', e => { if (e.code === 'Space' && gameRunning) { e.preventDefault(); boosting = true; } });
-      window.addEventListener('keyup', e => { if (e.code === 'Space') boosting = false; });
+      window.addEventListener('keydown', e => {
+        if (e.code === 'Space' && gameRunning) { e.preventDefault(); boosting = true; }
+        if (e.code in keys) { keys[e.code] = true; e.preventDefault(); }
+      });
+      window.addEventListener('keyup', e => {
+        if (e.code === 'Space') boosting = false;
+        if (e.code in keys) keys[e.code] = false;
+      });
       document.getElementById('restart-btn').addEventListener('click', restartGame);
 
       animate();
@@ -338,20 +345,31 @@
     function updatePlayer(dt) {
       if (!player.alive) return;
 
-      // Direction cible à partir de la souris
+      // Direction cible : souris + flèches
       const camDir = new THREE.Vector3();
       camera.getWorldDirection(camDir);
       camDir.y = 0;
       camDir.normalize();
       const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), camDir).normalize();
 
-      // La souris est relative au centre de l'écran :
-      //  - souris à droite  -> tourner vers la droite (mouse.x > 0)
-      //  - souris en haut   -> tourner vers l'avant (mouse.y < 0)
-      const mouseNorm = Math.min(1, Math.hypot(mouse.x, mouse.y) * 1.8);
-      const dirX = right.x * mouse.x - camDir.x * mouse.y * mouseNorm;
-      const dirZ = right.z * mouse.x - camDir.z * mouse.y * mouseNorm;
-      const targetAngle = Math.atan2(dirX, dirZ);
+      // Flèches : gauche/droite = rotation, haut = avant
+      let arrowTurn = 0;
+      if (keys.ArrowLeft)  arrowTurn = -1;
+      if (keys.ArrowRight) arrowTurn =  1;
+      if (keys.ArrowUp)    arrowTurn =  0; // avance déjà
+
+      // Si les flèches sont utilisées, elles priment sur la souris
+      let targetAngle;
+      if (arrowTurn !== 0) {
+        targetAngle = player.heading + arrowTurn * TURN_SPEED * 2;
+      } else if (keys.ArrowUp) {
+        targetAngle = player.heading;
+      } else {
+        const mouseNorm = Math.min(1, Math.hypot(mouse.x, mouse.y) * 1.8);
+        const dirX = right.x * mouse.x - camDir.x * mouse.y * mouseNorm;
+        const dirZ = right.z * mouse.x - camDir.z * mouse.y * mouseNorm;
+        targetAngle = Math.atan2(dirX, dirZ);
+      }
 
       // Calcul de la différence angulaire avec normalisation à [-π, π]
       let diff = targetAngle - player.heading;
@@ -670,7 +688,7 @@
     // -------------------------------------------------------------------------
     function updateCamera() {
       if (!player.alive) return;
-      const dist = 20 + player.length * 0.8;
+      const dist = Math.min(20 + player.length * 0.5, 60);
       const camHeight = dist * 0.9;
       const desired = new THREE.Vector3(
         player.group.position.x,
