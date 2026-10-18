@@ -527,9 +527,11 @@
               const dx = aPos.x - s.position.x;
               const dz = aPos.z - s.position.z;
               if (dx * dx + dz * dz < 2.5 * 2.5) {
-                killSnake(a, "Tu t'es mordu !");
-                return;
-              }
+              a.length += 5;
+              for (let j = 0; j < 5; j++) addSegment(a);
+              if (a.isPlayer) { score += 50; updateScoreUI(); }
+              return;
+            }
             }
           } else {
             for (let i = 0; i < b.segments.length; i++) {
@@ -537,9 +539,11 @@
               const dx = aPos.x - s.position.x;
               const dz = aPos.z - s.position.z;
               if (dx * dx + dz * dz < 2.5 * 2.5) {
-                killSnake(a, "Percuté par " + (b.isPlayer ? "le joueur" : "un autre serpent"));
-                return;
-              }
+              a.length += 5;
+              for (let j = 0; j < 5; j++) addSegment(a);
+              if (a.isPlayer) { score += 50; updateScoreUI(); }
+              return;
+            }
             }
           }
         }
